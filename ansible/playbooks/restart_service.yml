@@ -1,0 +1,9 @@
+---
+- name: Restart node_exporter service
+  hosts: all
+  become: true
+  tasks:
+  - name: Restart node_exporter
+    ansible.builtin.service:
+      name: node_exporter
+      state: restarted

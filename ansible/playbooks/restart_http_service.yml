@@ -1,0 +1,74 @@
+---
+# - name: Restart HTTP service
+#  hosts: all
+#  become: true
+#  tasks:
+#  - name: Ensure Apache HTTP service is started
+#    ansible.builtin.service:
+#      name: apache2
+#      state: restarted
+
+---
+- name: Intelligent restart of Apache2 service
+  hosts: all
+  become: true
+
+  tasks:
+  - name: Restart Apache2 service
+    ansible.builtin.service:
+      name: apache2
+      state: restarted
+    register: service_result
+    ignore_errors: true
+
+  - name: Wait for Apache2 to come back
+    ansible.builtin.wait_for:
+      port: 80
+      delay: 10 # Delay 10 seconds before start checking
+      timeout: 60 # Wait for 1 minutes for Apache to be up
+    when: service_result is not failed
+
+  - name: Check service status
+    ansible.builtin.service:
+      name: apache2
+      state: started
+    register: service_check
+    failed_when: service_check.status is defined and service_check.status != "running"
+    ignore_errors: true
+    when: service_result is failed
+
+  - name: Retrieve Apache error log
+    ansible.builtin.shell: tail -n 50 /var/log/apache2/error.log
+    register: log_contents
+    failed_when: log_contents.rc != 0
+    when: service_result is failed
+
+  - name: Output error log contents
+    ansible.builtin.debug:
+      msg: "{{ log_contents.stdout_lines }}"
+    when: log_contents.stdout_lines is defined and service_result is failed
+
+  - name: Attempt to recover Apache2 with backup config
+    block:
+      - name: Copy backup Apache2 config
+        ansible.builtin.copy:
+          src: ../backups/backup_apache2.conf
+          dest: /etc/apache2/apache2.conf
+          owner: root
+          group: root
+          mode: '0644'
+
+      - name: Restart Apache2 with backup config
+        ansible.builtin.service:
+          name: apache2
+          state: restarted
+
+    when: service_result is failed and 'syntax error' in log_contents.stdout
+
+  - name: Final check of Apache2 status
+    ansible.builtin.service:
+      name: apache2
+      state: started
+    register: final_check
+    failed_when: final_check.status is defined and final_check.status != "running"
+    when: service_result is failed
