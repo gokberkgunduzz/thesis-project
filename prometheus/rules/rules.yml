@@ -1,0 +1,33 @@
+groups:
+- name: instance_down_alert
+  rules:
+  - alert: InstanceDown
+    expr: up{job="node_exporter"} == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "Instance {{ $labels.instance }} down"
+      description: "{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 1 minute."
+
+- name: ssh_service_down_alert
+  rules:
+  - alert: SSHServiceDown
+    expr: probe_success{job="ssh_probe"} == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "SSH Service on {{ $labels.instance }} is down"
+      description: "SSH service on {{ $labels.instance }} has been down for more than 1 minute."
+
+- name: http_service_down_alert
+  rules:
+  - alert: HTTPServiceDown
+    expr: probe_success{job="http_probe"} == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "HTTP Service on {{ $labels.instance }} is down"
+      description: "HTTP service on {{ $labels.instance }} has been down for more than 1 minute."
