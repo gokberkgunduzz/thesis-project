@@ -1,0 +1,51 @@
+---
+- name: Remediate Unauthorized File Modifications in /var/www/html
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Ensure rsync is installed
+      ansible.builtin.package:
+        name: rsync
+        state: present
+
+    - name: Ensure ClamAV is installed
+      ansible.builtin.package:
+        name: clamav
+        state: present
+
+    - name: Update ClamAV database
+      ansible.builtin.command:
+        cmd: freshclam
+      ignore_errors: true
+      register: freshclam_update
+      changed_when: "'up-to-date' not in freshclam_update.stdout"
+
+    - name: Scan /var/www/html for malware with ClamAV
+      ansible.builtin.command:
+        cmd: clamscan -ri /var/www/html --exclude-dir=/var/www/html/large_media_files/
+      register: clamscan_results
+      changed_when: false
+      ignore_errors: true
+
+    - name: Output clamscan results
+      ansible.builtin.debug:
+        var: clamscan_results.stdout
+      when: clamscan_results.stdout is defined
+
+    - name: Alert if malware is found and stop the playbook
+      ansible.builtin.fail:
+        msg: "Malware detected in /var/www/html. Manual review required."
+      when: "'Infected files: 0' not in clamscan_results.stdout"
+
+    - name: Restore /var/www/html from backup if no malware is found
+      ansible.builtin.command:
+        cmd: rsync -a --delete /path/to/backup/var/www/html/ /var/www/html/
+      when: "'Infected files: 0' in clamscan_results.stdout"
+      notify: restart web server
+
+  handlers:
+    - name: restart web server
+      ansible.builtin.service:
+        name: apache2
+        state: restarted

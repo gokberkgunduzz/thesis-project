@@ -15,8 +15,23 @@ scrape_configs:
         - '10.5.0.5:9090'
 
   - job_name: 'node_exporter'
+    scrape_interval: 15s
     static_configs:
-      - targets: ['34.125.43.194:9100']
+    - targets: ['34.125.43.194:9100']  # Replace with your VM's IP and Node Exporter port
+
+  # If you are not already using the textfile collector, add this additional config
+#    metrics_path: /metrics
+#    params:
+#      format: [prometheus]
+#    relabel_configs:
+#    - source_labels: [__address__]
+#      regex: '(.*):\d+'
+#      target_label: __param_target
+#      replacement: '${1}'
+#    - source_labels: [__param_target]
+#      target_label: instance
+#    - target_label: __address__
+#      replacement: '10.5.0.7:9115' # Node Exporter's address (ensure this is correct)
 
   - job_name: 'ssh_probe'
     metrics_path: /probe

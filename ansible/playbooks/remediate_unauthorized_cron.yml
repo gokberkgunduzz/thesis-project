@@ -1,0 +1,39 @@
+---
+- name: Remediate Unauthorized Cron Job Additions
+  hosts: all
+  become: true
+  vars:
+    authorized_users: ['root', 'admin'] # Define authorized users here
+  tasks:
+    - name: Check for unauthorized cron jobs for each user
+      block:
+        - name: Get current cron jobs for user
+          ansible.builtin.command:
+            cmd: "crontab -u {{ item }} -l"
+          loop: "{{ ansible_user_ids | map(attribute='name') | list }}"
+          register: cron_jobs
+          ignore_errors: true
+          loop_control:
+            label: "{{ item }}"
+          when: item not in authorized_users
+
+        - name: Remove unauthorized cron jobs
+          ansible.builtin.lineinfile:
+            path: "/var/spool/cron/crontabs/{{ item.item }}"
+            state: absent
+            regexp: '^.*$' # Adjust this regex to match unauthorized jobs specifically
+            validate: 'crontab -u %s -'
+          loop: "{{ cron_jobs.results }}"
+          when: item.rc == 0 and item.item not in authorized_users
+          loop_control:
+            label: "{{ item.item }}"
+          notify: notify removal of unauthorized cron jobs
+
+  handlers:
+    - name: notify removal of unauthorized cron jobs
+      ansible.builtin.mail:
+        host: smtp.example.com
+        subject: Unauthorized cron jobs removed on {{ inventory_hostname }}
+        body: "Unauthorized cron jobs have been removed. Please review the changes."
+        to: Admin <admin@example.com>
+        from: Ansible <ansible@example.com>

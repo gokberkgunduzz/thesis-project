@@ -1,0 +1,19 @@
+---
+- name: Remediate Unauthorized Cron Jobs
+  hosts: all
+  become: true
+  tasks:
+    - name: Get current cron jobs for all users
+      ansible.builtin.command:
+        cmd: for user in $(cut -f1 -d: /etc/passwd); do echo "Cron jobs for $user"; crontab -u $user -l; done
+      register: cron_jobs
+      changed_when: false
+
+    - name: Log current cron jobs
+      ansible.builtin.copy:
+        content: "{{ cron_jobs.stdout }}"
+        dest: "/tmp/cron_jobs_audit_{{ inventory_hostname }}.txt"
+
+    - name: Notify for manual review
+      ansible.builtin.debug:
+        msg: "Cron jobs logged in /tmp/cron_jobs_audit_{{ inventory_hostname }}.txt for manual review."

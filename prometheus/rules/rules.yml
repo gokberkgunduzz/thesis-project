@@ -31,3 +31,37 @@ groups:
     annotations:
       summary: "HTTP Service on {{ $labels.instance }} is down"
       description: "HTTP service on {{ $labels.instance }} has been down for more than 1 minute."
+
+- name: ssh_login_failures
+  rules:
+  - alert: HighNumberOfFailedSSHLogins
+    expr: ssh_recent_failed_login_attempts_total > 100
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "High number of failed SSH login attempts"
+      description: "More than 100 failed SSH login attempts detected on {{ $labels.instance }} in the last 10 minutes."
+
+- name: file_integrity
+  rules:
+  - alert: AnomalousFileModification
+    expr: critical_file_modifications_total > 0
+    for: 5m
+    labels:
+      severity: critical
+    annotations:
+      summary: Anomalous file modification detected
+      description: "Detected {{ $value }} modifications in critical directories."
+
+- name: cron_job_monitoring
+  rules:
+  - alert: UnexpectedCronJobAddition
+    expr: cron_jobs_added_total > 2
+    for: 1m
+    labels:
+      severity: warning
+    annotations:
+      summary: "Unexpected cron job additions detected"
+      description: "More than 2 cron jobs have been added in the last day."
+

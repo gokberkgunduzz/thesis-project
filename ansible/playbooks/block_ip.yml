@@ -1,0 +1,62 @@
+---
+- name: Respond to High SSH Failures
+  hosts: all
+  become: true
+  vars:
+    whitelist_ips: ['192.168.1.57']  ##
+  tasks:
+    - name: Install fail2ban if not present
+      ansible.builtin.package:
+        name: fail2ban
+        state: present
+
+    - name: Ensure fail2ban is running
+      ansible.builtin.service:
+        name: fail2ban
+        state: started
+        enabled: yes
+
+    - name: Disable password authentication in sshd_config
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication yes'
+        line: 'PasswordAuthentication no'
+        state: present
+      notify: restart sshd
+
+    - name: Configure fail2ban jail for SSH with whitelist
+      ansible.builtin.copy:
+        dest: /etc/fail2ban/jail.d/ssh.conf
+        content: |
+          [sshd]
+          enabled = true
+          port = ssh
+          filter = sshd
+          logpath = /var/log/auth.log
+          maxretry = 5
+          findtime = 600
+          bantime = 3600
+          ignoreip = {{ whitelist_ips | join(' ') }}
+      notify: restart fail2ban
+
+    - name: Check if fail2ban is properly configured
+      ansible.builtin.command: fail2ban-client status sshd
+      register: fail2ban_status
+      changed_when: false
+      failed_when: "'sshd' not in fail2ban_status.stdout"
+
+    - name: Reset failed login attempts counter
+      ansible.builtin.shell: echo "ssh_recent_failed_login_attempts_total 0" > /var/lib/node_exporter/textfile_collector/ssh_failed_attempts.prom
+      when: fail2ban_status is not failed
+#      notify: restart node_exporter
+
+  handlers:
+    - name: restart sshd
+      ansible.builtin.service:
+        name: sshd
+        state: restarted
+
+    - name: restart fail2ban
+      ansible.builtin.service:
+        name: fail2ban
+        state: restarted

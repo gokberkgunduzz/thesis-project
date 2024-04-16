@@ -11,4 +11,6 @@ route:
 receivers:
 - name: 'web.hook'
   webhook_configs:
-    - url: 'http://192.168.1.57:5001/webhook'
+    - url: 'http://10.7.5.190:5001/webhook' # office
+# change to your local ip address!
+# - url: 'http://192.168.1.57:5001/webhook'
