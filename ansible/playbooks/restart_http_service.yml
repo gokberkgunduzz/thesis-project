@@ -1,7 +1,7 @@
 ---
 - name: Check and restart Apache service with extended self-remediation steps
   hosts: all
-  become: true
+#  become: true
 
   vars:
     apache_config_test: apache2ctl configtest
