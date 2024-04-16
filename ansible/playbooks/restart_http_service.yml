@@ -1,74 +1,109 @@
 ---
-# - name: Restart HTTP service
-#  hosts: all
-#  become: true
-#  tasks:
-#  - name: Ensure Apache HTTP service is started
-#    ansible.builtin.service:
-#      name: apache2
-#      state: restarted
-
----
-- name: Intelligent restart of Apache2 service
+- name: Check and restart Apache service with extended self-remediation steps
   hosts: all
   become: true
 
+  vars:
+    apache_config_test: apache2ctl configtest
+    apache_service_name: apache2
+    apache_config_path: /etc/apache2/apache2.conf
+    backup_config_path: /home/gg/src/thesis-trial/ansible/backups/backup_apache2.conf
+    error_log_path: /var/log/apache2/error.log
+    disk_space_threshold: 90 # percent
+    deny_git_access_snippet: |
+      # Deny access to .git and similar directories
+      <DirectoryMatch "^/.*/\.\w+/">
+        Require all denied
+      </DirectoryMatch>
+
   tasks:
-  - name: Restart Apache2 service
-    ansible.builtin.service:
-      name: apache2
-      state: restarted
-    register: service_result
-    ignore_errors: true
+    - name: Check Apache config syntax
+      ansible.builtin.command: "{{ apache_config_test }}"
+      register: syntax_check
+      ignore_errors: true
 
-  - name: Wait for Apache2 to come back
-    ansible.builtin.wait_for:
-      port: 80
-      delay: 10 # Delay 10 seconds before start checking
-      timeout: 60 # Wait for 1 minutes for Apache to be up
-    when: service_result is not failed
+    - name: Check disk space usage
+      ansible.builtin.shell: df -hP / | awk '0+$5 >= {{ disk_space_threshold }} {print}'
+      register: disk_space
+      ignore_errors: true
 
-  - name: Check service status
-    ansible.builtin.service:
-      name: apache2
-      state: started
-    register: service_check
-    failed_when: service_check.status is defined and service_check.status != "running"
-    ignore_errors: true
-    when: service_result is failed
+    - name: Clear old logs if disk space is full
+      ansible.builtin.shell: find /var/log/apache2/ -type f -name '*.log' -delete
+      when: disk_space.stdout != ""
 
-  - name: Retrieve Apache error log
-    ansible.builtin.shell: tail -n 50 /var/log/apache2/error.log
-    register: log_contents
-    failed_when: log_contents.rc != 0
-    when: service_result is failed
+    - name: Correct ownership of Apache directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        owner: www-data
+        group: www-data
+      with_items:
+        - /var/log/apache2
+        - /var/run/apache2
+      when: disk_space.stdout == ""
 
-  - name: Output error log contents
-    ansible.builtin.debug:
-      msg: "{{ log_contents.stdout_lines }}"
-    when: log_contents.stdout_lines is defined and service_result is failed
+    - name: Replace Apache config with backup if syntax is not okay
+      ansible.builtin.copy:
+        src: "{{ backup_config_path }}"
+        dest: /etc/apache2/apache2.conf
+        owner: root
+        group: root
+        mode: '0644'
+      when: syntax_check.stdout is not search("Syntax OK")
 
-  - name: Attempt to recover Apache2 with backup config
-    block:
-      - name: Copy backup Apache2 config
-        ansible.builtin.copy:
-          src: ../backups/backup_apache2.conf
-          dest: /etc/apache2/apache2.conf
-          owner: root
-          group: root
-          mode: '0644'
+    - name: Restart Apache2 service
+      ansible.builtin.service:
+        name: "{{ apache_service_name }}"
+        state: restarted
+      register: service_restart
+      ignore_errors: true
 
-      - name: Restart Apache2 with backup config
-        ansible.builtin.service:
-          name: apache2
-          state: restarted
+    - name: Wait for Apache2 to come back
+      ansible.builtin.wait_for:
+        port: 80
+        delay: 10
+        timeout: 60
+      when: service_restart is defined and service_restart is not failed
 
-    when: service_result is failed and 'syntax error' in log_contents.stdout
+    - name: Retrieve Apache error log if restart failed
+      ansible.builtin.shell: tail -n 50 "{{ error_log_path }}"
+      register: error_log
+      when: service_restart is defined and service_restart is failed
 
-  - name: Final check of Apache2 status
-    ansible.builtin.service:
-      name: apache2
-      state: started
-    register: final_check
-    failed_when: final_check.status is defined and final_check.status != "running"
-    when: service_result is failed
+    - name: Output error log contents if restart failed
+      ansible.builtin.debug:
+        msg: "{{ error_log.stdout_lines }}"
+      when: error_log.stdout_lines is defined and service_restart is failed
+
+    - name: Attempt to fix .htaccess issues by removing problematic files
+      ansible.builtin.shell: find /var/www/html -type f -name '.htaccess' -delete
+      when:
+        - error_log is defined
+        - error_log.stdout is defined
+        - '"htaccess" in error_log.stdout'
+
+    - name: Deny access to .git directories
+      ansible.builtin.lineinfile:
+        path: "{{ apache_config_path }}"
+        line: "{{ deny_git_access_snippet }}"
+        insertafter: "EOF"
+      register: git_access_denied
+      when:
+        - error_log is defined
+        - error_log.stdout is defined
+        - "'.git' in error_log.stdout"
+
+    - name: Restart Apache2 service after remediation attempts
+      ansible.builtin.service:
+        name: "{{ apache_service_name }}"
+        state: restarted
+      when: git_access_denied.changed or '"htaccess" in error_log.stdout or disk_space.stdout != ""'
+
+    - name: Final check of Apache2 status
+      ansible.builtin.service:
+        name: "{{ apache_service_name }}"
+        state: started
+      register: final_check
+      failed_when: final_check.state != "running"
+      when:
+        - error_log is defined and error_log.stdout is defined and "htaccess" in error_log.stdout
+        - disk_space is defined and disk_space.stdout != ""
