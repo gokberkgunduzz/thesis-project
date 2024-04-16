@@ -7,7 +7,7 @@
     apache_config_test: apache2ctl configtest
     apache_service_name: apache2
     apache_config_path: /etc/apache2/apache2.conf
-    backup_config_path: /home/gg/src/thesis-trial/ansible/backups/backup_apache2.conf
+    backup_config_path: /home/gg/src/thesis-project/ansible/backups/backup_apache2.conf
     error_log_path: /var/log/apache2/error.log
     disk_space_threshold: 90 # percent
     deny_git_access_snippet: |
